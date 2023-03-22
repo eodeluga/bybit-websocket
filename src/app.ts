@@ -11,14 +11,19 @@ type WebSocketResponse = {
 
 // Subscription handlers
 const handleTradeSub = (response: WebSocketResponse) => {
-    response.data.forEach(ele => {
-        const {T, S, v, p} = ele;
-        console.log("");
+    response.data.forEach(async ele => {
+        const {T: timestamp, S: direction, v: size, p: price, BT: blocktrade} = ele;
+        const csv = `${timestamp},${direction},${size},${price},${blocktrade}\n`;
+        await writeString("data/trade.csv", csv)
     })
 }
 
 const handleLiquidationSub = (response: WebSocketResponse) => {
-    console.log(response);
+    response.data.forEach(async ele => {
+        const {ts: updateTime, side: direction, size: size, price: price} = ele;
+        const csv = `${updateTime},${direction},${size},${price}\n`;
+        await writeString("data/liquidation.csv", csv)
+    })
 }
 
 const setupDownloadDir = async (folder: string): Promise<void | boolean> => {
@@ -35,18 +40,6 @@ const writeString = async (file: string, data: string) => {
     await fs.appendFile(file, data);
 };
 
-const initialiseDownload = async (file: string, csvHeader: string) => {
-    // Nothing to resume so initialise download
-    const folderExists = await setupDownloadDir(file);
-    
-    let header = "timestamp,direction,size,price,blocktrade"
-    await writeString(`${file}/trade.csv`, header);
-    
-    header = "timestamp,direction,size,price"
-    await writeString(`${file}/liquidation.csv`, header);
-}
-
-
 // Initialise output files
 (async () => {
     const folder = "data";
@@ -55,10 +48,10 @@ const initialiseDownload = async (file: string, csvHeader: string) => {
     const folderExists = await setupDownloadDir(folder);
     
     if (!folderExists) {
-        let header = "timestamp,direction,size,price,blocktrade"
+        let header = "timestamp,direction,size,price,blocktrade\n"
         await writeString(`${folder}/trade.csv`, header);
         
-        header = "timestamp,direction,size,price"
+        header = "timestamp,direction,size,price\n"
         await writeString(`${folder}/liquidation.csv`, header);    
     }
 })()
@@ -90,9 +83,11 @@ stream.on("open", () => {
 
 stream.on("message", async (data) => {
     const response: WebSocketResponse = JSON.parse(data.toString());
-    response.topic === "publicTrade.BTCUSDT" ? 
-        await handleTradeSub(response) : 
+    if (response.topic === "publicTrade.BTCUSDT") { 
+        await handleTradeSub(response);
+    } else if (response.topic === "liquidation.BTCUSDT") {
         await handleLiquidationSub(response);
+    }
 });
 
 // Send ping keep alive every 20 secs

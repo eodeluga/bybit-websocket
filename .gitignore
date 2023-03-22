@@ -1,3 +1,6 @@
+.vscode
+data
+out
 node_modules
-*.js
-*.map
+build
+.env
