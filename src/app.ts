@@ -1,6 +1,5 @@
 import { WebSocket } from "ws";
 import * as fs from "fs/promises";
-import path from "path";
 
 type WebSocketResponse = {
     topic: string;
@@ -10,7 +9,7 @@ type WebSocketResponse = {
 }
 
 // Subscription handlers
-const handleTradeSub = (response: WebSocketResponse) => {
+const handleTradeSub = async (response: WebSocketResponse) => {
     response.data.forEach(async ele => {
         const {T: timestamp, S: direction, v: size, p: price, BT: blocktrade} = ele;
         const csv = `${timestamp},${direction},${size},${price},${blocktrade}\n`;
@@ -18,7 +17,7 @@ const handleTradeSub = (response: WebSocketResponse) => {
     })
 }
 
-const handleLiquidationSub = (response: WebSocketResponse) => {
+const handleLiquidationSub = async (response: WebSocketResponse) => {
     response.data.forEach(async ele => {
         const {ts: updateTime, side: direction, size: size, price: price} = ele;
         const csv = `${updateTime},${direction},${size},${price}\n`;
@@ -90,8 +89,12 @@ stream.on("message", async (data) => {
     }
 });
 
+stream.on("error", () => {
+    console.log("WOaah!");
+})
+
 // Send ping keep alive every 20 secs
-setInterval(() => {
+const interval = setInterval(() => {
     stream.send(JSON.stringify(ping));
-}, 20000)
+}, 20000);
 
