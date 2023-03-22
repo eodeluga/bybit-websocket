@@ -89,12 +89,8 @@ stream.on("message", async (data) => {
     }
 });
 
-stream.on("error", () => {
-    console.log("WOaah!");
-})
-
 // Send ping keep alive every 20 secs
-const interval = setInterval(() => {
+setInterval(() => {
     stream.send(JSON.stringify(ping));
 }, 20000);
 
