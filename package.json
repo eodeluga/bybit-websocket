@@ -1,0 +1,26 @@
+{
+  "name": "bybit-websocket",
+  "version": "1.0.0",
+  "description": "",
+  "main": "src/app.ts",
+  "scripts": {
+    "build": "npx tsc",
+    "start": "npx ts-node src/app.ts",
+    "test": "npx ts-mocha src/test/test.spec.ts"
+  },
+  "author": "eodeluga",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/chai": "^*",
+    "@types/mocha": "^*",
+    "@types/node": "^*",
+    "@types/ws": "^8.5.4",
+    "chai": "^*",
+    "ts-mocha": "^*",
+    "ts-node": "^*",
+    "typescript": "^*"
+  },
+  "dependencies": {
+    "ws": "^8.13.0"
+  }
+}
