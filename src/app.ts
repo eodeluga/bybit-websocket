@@ -1,38 +1,93 @@
 import { WebSocket } from "ws";
 import * as fs from "fs/promises";
+import path from "path";
 
 type WebSocketResponse = {
     topic: string;
-    data: [];
     ts?: number;
     type?: string;
+    data: Trade [] | Liquidation;
+}
+
+type Trade = {
+    T: number;
+    S: string;
+    v: string;
+    p: string;
+    BT: boolean;
+}
+
+type Liquidation = {
+    updatedTime: number;
+    symbol: string;
+    side: string;
+    size: string;
+    price: string;    
+}
+
+type Path = {
+    root?: string;
+    dir: string;
+    base: string;
+}
+
+const folder = "data";
+
+const tradeFilepath: Path = {
+    dir: folder,
+    base: "trade.csv",
+}
+
+const liquidationFilepath: Path = {
+    dir: folder,
+    base: "liquidation.csv",
 }
 
 // Subscription handlers
 const handleTradeSub = async (response: WebSocketResponse) => {
-    response.data.forEach(async ele => {
-        const {T: timestamp, S: direction, v: size, p: price, BT: blocktrade} = ele;
+    const data = response.data as Trade [];
+    data.forEach(async trade => {
+        const {T: timestamp, S: direction, v: size, p: price, BT: blocktrade} = trade;
         const csv = `${timestamp},${direction},${size},${price},${blocktrade}\n`;
-        await writeString("data/trade.csv", csv)
+        // Write data
+        await writeString(path.format(tradeFilepath), csv);
     })
 }
 
 const handleLiquidationSub = async (response: WebSocketResponse) => {
-    response.data.forEach(async ele => {
-        const {ts: updateTime, side: direction, size: size, price: price} = ele;
-        const csv = `${updateTime},${direction},${size},${price}\n`;
-        await writeString("data/liquidation.csv", csv)
-    })
+    const data = response.data as Liquidation;
+    const {updatedTime, side: direction, size, price} = data;
+    const csv = `${updatedTime},${direction},${size},${price}\n`;
+    // Write data
+    await writeString(path.format(liquidationFilepath), csv);
 }
 
-const setupDownloadDir = async (folder: string): Promise<void | boolean> => {
+const initialiseDataFolder = async () => {
+    let file: string;
+
     // Check if folder exists
-    return await fs.access(folder)
-        .then(() => (true))
-        .catch(() => {
-            // Create it
-            fs.mkdir(folder)
-        });
+    await fs.access(folder)
+    .catch(async () => {
+        // Create it
+        await fs.mkdir(folder);
+    });
+    
+    // Check if files exist
+    file = path.format(tradeFilepath);
+    await fs.access(file)
+    .catch(async () => {
+        // Create it
+        let header = "timestamp,direction,size,price,blocktrade\n";
+        await writeString(file, header);
+    });
+        
+    file = path.format(liquidationFilepath);
+    await fs.access(file)
+    .catch(async () => {
+        // Create it
+        let header = "timestamp,direction,size,price\n";
+        await writeString(file, header);   
+    });
 }
 
 const writeString = async (file: string, data: string) => {
@@ -41,20 +96,9 @@ const writeString = async (file: string, data: string) => {
 
 // Initialise output files
 (async () => {
-    const folder = "data";
     console.log("Starting!!!");
-    
-    const folderExists = await setupDownloadDir(folder);
-    
-    if (!folderExists) {
-        let header = "timestamp,direction,size,price,blocktrade\n"
-        await writeString(`${folder}/trade.csv`, header);
-        
-        header = "timestamp,direction,size,price\n"
-        await writeString(`${folder}/liquidation.csv`, header);    
-    }
+    await initialiseDataFolder();
 })()
-
 
 // Connect
 const stream: WebSocket = new WebSocket(
