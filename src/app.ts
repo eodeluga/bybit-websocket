@@ -9,6 +9,13 @@ type WebSocketResponse = {
     data: Trade [] | Liquidation;
 }
 
+type WebSocketStatusResponse = {
+    success: boolean;
+    ret_msg: string,
+    conn_id: string,
+    op: string,
+}
+
 type Trade = {
     T: number;
     S: string;
@@ -31,6 +38,11 @@ type Path = {
     base: string;
 }
 
+ // Connection
+ const stream: WebSocket = new WebSocket(
+    "wss://stream.bybit.com/v5/public/linear"
+);
+
 const folder = "data";
 
 const tradeFilepath: Path = {
@@ -42,6 +54,14 @@ const liquidationFilepath: Path = {
     dir: folder,
     base: "liquidation.csv",
 }
+
+const ping = {
+    "req_id": "100001", 
+    "op": "ping"
+}
+
+let pongReceived: number = 0;
+let pingInterval: NodeJS.Timer;
 
 // Subscription handlers
 const handleTradeSub = async (response: WebSocketResponse) => {
@@ -60,6 +80,32 @@ const handleLiquidationSub = async (response: WebSocketResponse) => {
     const csv = `${updatedTime},${direction},${size},${price}\n`;
     // Write data
     await writeString(path.format(liquidationFilepath), csv);
+}
+
+const handlePong = (response: WebSocketStatusResponse) => {
+    console.log(pongReceived)
+    response.success ? pongReceived = 1 : pongReceived--;
+}
+
+const handlePing = () => {
+    console.log(pongReceived)
+    if (pongReceived < -1) {
+        restartWebSocket();
+    } else {
+        stream.send(JSON.stringify(ping));
+        pongReceived--
+    }  
+}
+
+const startPingInterval = () => {
+    // Send ping keep alive every 20 secs
+    pingInterval = setInterval(() => {
+        handlePing();
+    }, 20000);
+}
+
+const stopPingInterval = () => {
+    clearInterval(pingInterval);
 }
 
 const initialiseDataFolder = async () => {
@@ -90,51 +136,57 @@ const initialiseDataFolder = async () => {
     });
 }
 
+const initialiseWebSocket = () => {
+    
+    // Subscribe
+    stream.on("open", () => {
+        const message = {
+            "req_id": "subs",
+            "op": "subscribe",
+            // Subscriptions
+            "args": [
+                "liquidation.BTCUSDT",
+                "publicTrade.BTCUSDT",
+            ],
+        };
+        stream.send(JSON.stringify(message));
+    });
+    
+    stream.on("message", async (data) => {        
+        const response: WebSocketResponse | WebSocketStatusResponse = JSON.parse(data.toString());
+        
+        if ( (response as WebSocketResponse).topic === "publicTrade.BTCUSDT" ) { 
+            await handleTradeSub(response as WebSocketResponse);
+        
+        } else if ( (response as WebSocketResponse).topic === "liquidation.BTCUSDT") {
+            await handleLiquidationSub(response as WebSocketResponse);
+        
+        } else if ( (response as WebSocketStatusResponse).ret_msg === "pong" ) {
+            handlePong(response as WebSocketStatusResponse);
+        }
+    });
+    
+    startPingInterval();
+}
+
 const writeString = async (file: string, data: string) => {
     await fs.appendFile(file, data);
 };
+
+const restartWebSocket = () => {
+    console.log("Restarting WebSocket!");
+    stopPingInterval();
+    stream.close();
+    initialiseWebSocket();
+}
 
 // Initialise output files
 (async () => {
     console.log("Starting!!!");
     await initialiseDataFolder();
+    initialiseWebSocket();
 })()
 
-// Connect
-const stream: WebSocket = new WebSocket(
-  "wss://stream.bybit.com/v5/public/linear"
-);
 
-const ping = {
-    "req_id": "100001", 
-    "op": "ping"
-}
 
-// Subscribe
-stream.on("open", () => {
-    const message = {
-        "req_id": "subs",
-        "op": "subscribe",
-        // Subscriptions
-        "args": [
-            "liquidation.BTCUSDT",
-            "publicTrade.BTCUSDT",
-        ],
-    };
-    stream.send(JSON.stringify(message));
-});
-
-stream.on("message", async (data) => {
-    const response: WebSocketResponse = JSON.parse(data.toString());
-    if (response.topic === "publicTrade.BTCUSDT") { 
-        await handleTradeSub(response);
-    } else if (response.topic === "liquidation.BTCUSDT") {
-        await handleLiquidationSub(response);
-    }
-});
-
-// Send ping keep alive every 20 secs
-setInterval(() => {
-    stream.send(JSON.stringify(ping));
-}, 20000);
 
