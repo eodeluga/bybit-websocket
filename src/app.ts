@@ -38,10 +38,8 @@ type Path = {
     base: string;
 }
 
- // Connection
- const stream: WebSocket = new WebSocket(
-    "wss://stream.bybit.com/v5/public/linear"
-);
+// Connection
+let stream: WebSocket;
 
 const folder = "data";
 
@@ -60,7 +58,7 @@ const ping = {
     "op": "ping"
 }
 
-let pongReceived: number = 0;
+let pongReceived: number;
 let pingInterval: NodeJS.Timer;
 
 // Subscription handlers
@@ -83,12 +81,10 @@ const handleLiquidationSub = async (response: WebSocketResponse) => {
 }
 
 const handlePong = (response: WebSocketStatusResponse) => {
-    console.log(pongReceived)
     response.success ? pongReceived = 1 : pongReceived--;
 }
 
 const handlePing = () => {
-    console.log(pongReceived)
     if (pongReceived < -1) {
         restartWebSocket();
     } else {
@@ -137,7 +133,7 @@ const initialiseDataFolder = async () => {
 }
 
 const initialiseWebSocket = () => {
-    
+    stream  = new WebSocket("wss://stream.bybit.com/v5/public/linear");
     // Subscribe
     stream.on("open", () => {
         const message = {
@@ -166,6 +162,7 @@ const initialiseWebSocket = () => {
         }
     });
     
+    pongReceived = 0;
     startPingInterval();
 }
 
@@ -174,18 +171,27 @@ const writeString = async (file: string, data: string) => {
 };
 
 const restartWebSocket = () => {
-    console.log("Restarting WebSocket!");
-    stopPingInterval();
-    stream.close();
-    initialiseWebSocket();
+    if(stream.readyState != WebSocket.CLOSED || WebSocket.CLOSING) {
+        console.log("WebSocket disconnected. Attempting resume!");
+        stream.pause();
+        stopPingInterval();
+        stream.resume();
+        startPingInterval();
+    
+    } else {
+        console.log("WebSocket broken. Attempting restart!");
+        stream.terminate();
+        stream.removeAllListeners();
+        initialiseWebSocket();
+    }
 }
 
-// Initialise output files
+// Startup
 (async () => {
-    console.log("Starting!!!");
+    console.log("Starting WebSocket!");
     await initialiseDataFolder();
     initialiseWebSocket();
-})()
+})();
 
 
 
