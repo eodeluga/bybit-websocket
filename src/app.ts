@@ -18,7 +18,7 @@ type WebSocketStatusResponse = {
 
 type Trade = {
     T: number;
-    S: string;
+    S: 'Buy' | 'Sell';
     v: string;
     p: string;
     BT: boolean;
@@ -27,7 +27,7 @@ type Trade = {
 type Liquidation = {
     updatedTime: number;
     symbol: string;
-    side: string;
+    side: 'Buy' | 'Sell';
     size: string;
     price: string;    
 }
@@ -60,8 +60,17 @@ const ping = {
 
 let pongReceived: number;
 let pingInterval: NodeJS.Timer;
+let restartCount: number;
 
-// Subscription handlers
+const getDate = () => new Date().toISOString();
+
+/**
+ * Handles the response from the WebSocket subscription for the publicTrade.BTCUSDT topic.
+ * Writes trade data to a CSV file.
+ *
+ * @param {WebSocketResponse} response - The response from the WebSocket subscription.
+ * @returns {Promise<void>} A Promise that resolves when the trade data has been written to the CSV file.
+ */
 const handleTradeSub = async (response: WebSocketResponse) => {
     const data = response.data as Trade [];
     data.forEach(async trade => {
@@ -72,6 +81,13 @@ const handleTradeSub = async (response: WebSocketResponse) => {
     })
 }
 
+/**
+ * Handles the response from the WebSocket subscription for the liquidation.BTCUSDT topic.
+ * Writes liquidation data to a CSV file.
+ *
+ * @param {WebSocketResponse} response - The response from the WebSocket subscription.
+ * @returns {Promise<void>} A Promise that resolves when the liquidation data has been written to the CSV file.
+ */
 const handleLiquidationSub = async (response: WebSocketResponse) => {
     const data = response.data as Liquidation;
     const {updatedTime, side: direction, size, price} = data;
@@ -80,12 +96,28 @@ const handleLiquidationSub = async (response: WebSocketResponse) => {
     await writeString(path.format(liquidationFilepath), csv);
 }
 
+/**
+ * Handles the pong response from the WebSocket status subscription.
+ *
+ * @param {WebSocketStatusResponse} response - The pong response from the WebSocket status subscription.
+ * @returns {void}
+ */
 const handlePong = (response: WebSocketStatusResponse) => {
-    response.success ? pongReceived = 1 : pongReceived--;
+    if (response.success) {            
+        pongReceived = 1;       
+    } else {
+        pongReceived--;
+    }
 }
 
+/**
+ * Sends a ping message to the WebSocket and handles the response.
+ * If the WebSocket is not responding, the connection is restarted.
+ *
+ * @returns {void}
+ */
 const handlePing = () => {
-    if (pongReceived < -1) {
+    if (pongReceived <= -1) {
         restartWebSocket();
     } else {
         stream.send(JSON.stringify(ping));
@@ -93,6 +125,11 @@ const handlePing = () => {
     }  
 }
 
+/**
+ * Starts the ping keep-alive interval for the WebSocket connection.
+ *
+ * @returns {void}
+ */
 const startPingInterval = () => {
     // Send ping keep alive every 20 secs
     pingInterval = setInterval(() => {
@@ -100,10 +137,20 @@ const startPingInterval = () => {
     }, 20000);
 }
 
+/**
+ * Stops the ping keep-alive interval for the WebSocket connection.
+ *
+ * @returns {void}
+ */
 const stopPingInterval = () => {
     clearInterval(pingInterval);
 }
 
+/**
+ * Initialises the data folder and creates the necessary CSV files if they don't exist.
+ *
+ * @returns {Promise<void>} A Promise that resolves when the data folder has been initialised.
+ */
 const initialiseDataFolder = async () => {
     let file: string;
 
@@ -132,6 +179,11 @@ const initialiseDataFolder = async () => {
     });
 }
 
+/**
+ * Initialises the WebSocket connection and subscribes to the necessary topics.
+ *
+ * @returns {void}
+ */
 const initialiseWebSocket = () => {
     stream  = new WebSocket("wss://stream.bybit.com/v5/public/linear");
     // Subscribe
@@ -148,9 +200,13 @@ const initialiseWebSocket = () => {
         stream.send(JSON.stringify(message));
     });
     
-    stream.on("message", async (data) => {        
+    stream.on("message", async (data) => {
+        if (restartCount > 0) {
+            restartCount = 0;
+            console.log(`${getDate()} - Resumed Websocket!`);
+        }
+            
         const response: WebSocketResponse | WebSocketStatusResponse = JSON.parse(data.toString());
-        
         if ( (response as WebSocketResponse).topic === "publicTrade.BTCUSDT" ) { 
             await handleTradeSub(response as WebSocketResponse);
         
@@ -163,32 +219,57 @@ const initialiseWebSocket = () => {
     });
     
     pongReceived = 0;
+    restartCount = 0;
     startPingInterval();
 }
 
+/**
+ * Writes a string of data to a file.
+ *
+ * @param {string} file - The path to the file to write to.
+ * @param {string} data - The data to write to the file.
+ * @returns {Promise<void>} A Promise that resolves when the data has been written to the file.
+ */
 const writeString = async (file: string, data: string) => {
     await fs.appendFile(file, data);
 };
 
+/**
+ * Restarts the WebSocket connection if it is disconnected or not responding.
+ *
+ * @returns {void}
+ */
 const restartWebSocket = () => {
+    // Exit out to process manager with restart count as error code
+    if (restartCount >= 3) {
+        stream.terminate();
+        stream.removeAllListeners();
+        process.exit(restartCount);
+    }
+    
+    const date = getDate();
+    
     if(stream.readyState != WebSocket.CLOSED || WebSocket.CLOSING) {
-        console.log("WebSocket disconnected. Attempting resume!");
+        console.log(`${date} - WebSocket disconnected. Attempting resume!`);
         stream.pause();
         stopPingInterval();
         stream.resume();
         startPingInterval();
     
     } else {
-        console.log("WebSocket broken. Attempting restart!");
+        console.log(`${date} - WebSocket broken. Attempting restart!`);
         stream.terminate();
         stream.removeAllListeners();
         initialiseWebSocket();
     }
+    restartCount++;
+    console.log(`${getDate()} - Restart attempt: ${restartCount}`);
 }
 
 // Startup
 (async () => {
-    console.log("Starting WebSocket!");
+    const date = getDate();
+    console.log(`${date} - Starting WebSocket!`);
     await initialiseDataFolder();
     initialiseWebSocket();
 })();

@@ -2,6 +2,7 @@
 /.vscode
 /build
 /test
+/data
 /.git
 .env*
 *.md
