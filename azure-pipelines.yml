@@ -1,0 +1,43 @@
+trigger:
+  branches:
+    include:
+      - main  # You can change this to the branch you want to trigger the pipeline on
+  paths:
+    exclude:
+      - README.md
+      - azure-pipelines.yml      
+pool:
+  name: $(POOL)
+
+steps:
+# Git code repo key
+- task: InstallSSHKey@0
+  inputs:
+    knownHostsEntry: '$(KNOWN_HOSTS)'
+    sshPublicKey: '$(SSH_PUBLIC_KEY)'
+    sshPassphrase: '$(SSH_KEY_PASS_PHRASE)'
+    sshKeySecureFile: '$(SSH_KEY)'
+    addEntryToConfig: true
+    configHostAlias: ssh.dev.azure.com
+    configHostname: ssh.dev.azure.com
+    configUser: git
+# Server access key to run remote commands
+- task: InstallSSHKey@0
+  inputs:
+    knownHostsEntry: '$(SERVER_KNOWN_HOSTS)'
+    sshPublicKey: '$(SERVER_PUBLIC_KEY)'
+    sshPassphrase: '$(SERVER_PASS_PHRASE)'
+    sshKeySecureFile: '$(SERVER_KEY)'
+    addEntryToConfig: true
+    configHostAlias: $(SERVER_HOST)
+    configHostname: $(SERVER_HOST)
+    configUser: $(SERVER_USER)
+- script: |
+    git clone $(REPO)
+  displayName: 'Clone code'
+- script: 
+    ssh $(SERVER_HOST) -l $(SERVER_USER) -p $(SERVER_PORT) '
+      bash -lc "
+        cd $(WORK_DIR) &&
+        docker-compose up --build -d"'
+  displayName: 'Execute code'
