@@ -5,7 +5,7 @@ services:
       context: ./
       dockerfile: Dockerfile
     volumes:
-      - ./data:/usr/src/app/data
+      - /corestore/docker-data/bybit-data:/usr/src/app/data
     restart: unless-stopped
     image: node:16
     container_name: bybit-websocket
